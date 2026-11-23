@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS MAX COMMUNITY</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#020208;color:white;
+ font-family:Arial;height:100vh;
+ display:flex;flex-direction:column;align-items:center;
+ overflow:hidden
+}
+canvas{width:100%;max-width:500px;height:330px;margin-top:5px}
+.status{color:#8daaff;letter-spacing:2px;font-size:13px}
+#chat{
+ width:92%;max-width:500px;flex:1;overflow-y:auto;
+ margin-top:15px;padding:10px;
+ border:1px solid #17376b;border-radius:15px;
+ background:#080d1b
+}
+.msg{margin:10px 0;padding:10px;border-radius:10px;line-height:1.4}
+.user{background:#142b50;text-align:right}
+.ai{background:#10182b;color:#b9d5ff}
+.controls{width:92%;max-width:500px;display:flex;gap:8px;margin:10px 0 20px}
+input{
+ flex:1;min-width:0;padding:14px;border-radius:25px;
+ border:1px solid #397bdb;background:#0b1428;color:white
+}
+button{
+ border:1px solid #5b9dff;background:#10264a;
+ color:white;border-radius:25px;padding:12px 18px
+}
+</style>
+</head>
+<body>
+<canvas id="sphere"></canvas>
+<div class="status" id="status">SYSTEM ONLINE</div>
+<div id="chat">
+ <div class="msg ai">Привет! Я JARVIS MAX COMMUNITY. Чем могу помочь?</div>
+</div>
+<div class="controls">
+ <input id="message" placeholder="Напиши Джарвису...">
+ <button onclick="startListening()">🎙</button>
+ <button onclick="sendMessage()">➤</button>
+</div>
+<script>
+const canvas=document.getElementById("sphere");
+const ctx=canvas.getContext("2d");
+let w,h,points=[];
+function resize(){
+ const d=Math.min(devicePixelRatio||1,2);
+ w=canvas.clientWidth;h=canvas.clientHeight;
+ canvas.width=w*d;canvas.height=h*d;
+ ctx.setTransform(d,0,0,d,0,0);
+ points=[];
+ for(let i=0;i<900;i++){
+  const y=1-2*(i+.5)/900;
+  const r=Math.sqrt(1-y*y);
+  const a=Math.PI*(3-Math.sqrt(5))*i;
+  points.push({x:Math.cos(a)*r,y,z:Math.sin(a)*r});
+ }
+}
+function draw(){
+ ctx.clearRect(0,0,w,h);
+ const angle=Date.now()*.00035;
+ const cx=w/2,cy=h/2,radius=Math.min(w,h)*.39;
+ let arr=[];
+ for(const p of points){
+  const x=p.x*Math.cos(angle)-p.z*Math.sin(angle);
+  const z=p.x*Math.sin(angle)+p.z*Math.cos(angle);
+  const scale=3/(3-z);
+  arr.push({x:cx+x*radius*scale,y:cy+p.y*radius*scale,z,scale});
+ }
+ arr.sort((a,b)=>a.z-b.z);
+ for(const p of arr){
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,.7+p.scale*1.2,0,Math.PI*2);
+  ctx.fillStyle=`rgba(165,205,255,${.25+(p.z+1)*.35})`;
+  ctx.shadowBlur=8;ctx.shadowColor="#478cff";ctx.fill();
+ }
+ ctx.shadowBlur=0;
+ requestAnimationFrame(draw);
+}
+
+let wakeActive = false;
+let wakeBusy = false;
+let wakeRecognition = null;
+
+function startListening(){
+ const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+ if(!Speech){
+  document.getElementById("status").textContent="VOICE NOT SUPPORTED";
+  return;
+ }
+ wakeActive = true;
+ listenForWakeWord();
+}
+
+function listenForWakeWord(){
+ if(!wakeActive || wakeBusy) return;
+ const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+ if(!Speech) return;
+
+ const rec = new Speech();
+ wakeRecognition = rec;
+ rec.lang = "ru-RU";
+ rec.continuous = true;
+ rec.interimResults = false;
+
+ rec.onstart = () => {
+  document.getElementById("status").textContent="SAY JARVIS...";
+ };
+
+ rec.onresult = event => {
+  for(let i=event.resultIndex;i<event.results.length;i++){
+   if(!event.results[i].isFinal) continue;
+   const heard = event.results[i][0].transcript.trim();
+   const match = heard.match(/джарвис[\s,!.:-]*(.*)/i);
+   if(match){
+    const command = match[1].trim();
+    if(command){
+     wakeBusy = true;
+     rec.stop();
+     document.getElementById("message").value = command;
+     sendMessage();
+    } else {
+     document.getElementById("status").textContent="Я СЛУШАЮ...";
+    }
+   }
+  }
+ };
+
+ rec.onerror = () => {
+  document.getElementById("status").textContent="MICROPHONE ERROR";
+ };
+
+ rec.onend = () => {
+  if(wakeActive && !wakeBusy){
+   setTimeout(listenForWakeWord,500);
+  }
+ };
+
+ try{rec.start();}
+ catch(e){setTimeout(listenForWakeWord,1000);}
+}
+
+async function sendMessage(){
+ const input=document.getElementById("message");
+ const chat=document.getElementById("chat");
+ const status=document.getElementById("status");
+ const message=input.value.trim();
+ if(!message)return;
+ input.value="";
+ addMessage(message,"user");
+ status.textContent="JARVIS THINKING...";
+ try{
+  const response=await fetch("/api/chat",{
+   method:"POST",
+   headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({message})
+  });
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||"Ошибка сервера");
+  addMessage(data.answer,"ai");
+  if ("speechSynthesis" in window) {
+   speechSynthesis.cancel();
+   const voice = new SpeechSynthesisUtterance(data.answer);
+   voice.lang = "ru-RU";
+   voice.rate = 1;
+   voice.pitch = 0.85;
+   voice.onend = () => { wakeBusy=false; if(wakeActive) setTimeout(listenForWakeWord, 1000); };
+   speechSynthesis.speak(voice);
+  }
+  status.textContent="SYSTEM ONLINE";
+ }catch(e){
+  addMessage("Не удалось связаться с ИИ: "+e.message,"ai");
+  status.textContent="CONNECTION ERROR";
+  wakeBusy=false;
+  if(wakeActive) setTimeout(listenForWakeWord, 1500);
+ }
+}
+function addMessage(text,type){
+ const el=document.createElement("div");
+ el.className="msg "+type;
+ el.textContent=text;
+ const chat=document.getElementById("chat");
+ chat.appendChild(el);
+ chat.scrollTop=chat.scrollHeight;
+}
+document.getElementById("message").addEventListener("keydown",e=>{
+ if(e.key==="Enter")sendMessage();
+});
+window.addEventListener("resize",resize);
+resize();draw();
+</script>
+</body>
+</html>
