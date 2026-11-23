@@ -38,7 +38,7 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-app.listen(3000, '0.0.0.0', () => {
+app.listen(process.env.PORT || 3000, '0.0.0.0', () => {
   console.log('JARVIS MAX COMMUNITY запущен!');
   console.log('Порт: 3000');
 });
